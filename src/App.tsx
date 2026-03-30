@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { NavBar } from "./NavBar";
 import { SidePanel } from "./SidePanel";
 import { DetailPanel } from "./DetailPanel";
 import { ThreatPanel } from "./ThreatPanel";
@@ -235,6 +236,8 @@ function App() {
   return (
     <>
       <div id="canvas-container" ref={canvasContainerRef} />
+
+      <NavBar />
 
       <LandingScreen
         showLanding={showLanding}
