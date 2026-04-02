@@ -11,6 +11,7 @@ import {
   type SubmarinePatrol,
   type MajorCity,
 } from "./data";
+import { createGlobeCore } from "./globeCore";
 
 export type FilterType = FacilityType | "all";
 
@@ -56,47 +57,14 @@ export function createThreeScene(
   callbacks: SceneCallbacks,
   options?: { initialCameraZ?: number }
 ): SceneApi {
-  const scene = new THREE.Scene();
-
-  const camera = new THREE.PerspectiveCamera(
-    45,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    1000
-  );
-  const defaultCameraZ = 3.2;
-  camera.position.z = options?.initialCameraZ ?? defaultCameraZ;
-
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setClearColor(0x0a0c10, 1);
-  container.innerHTML = "";
-  container.appendChild(renderer.domElement);
-
-  const raycaster = new THREE.Raycaster();
-  raycaster.params.Points = { threshold: 0.06 };
-  const mouse = new THREE.Vector2();
-
-  let isDragging = false;
-  let prevMouse = { x: 0, y: 0 };
-  let rotationVelocity = { x: 0, y: 0 };
-  let targetRotation = { x: 0.3, y: 0 };
-  let autoRotate = true;
-  let autoRotateResumeTimeoutId: ReturnType<typeof setTimeout> | null = null;
-  let cameraFlight:
-    | {
-        fromZ: number;
-        toZ: number;
-        startMs: number;
-        durationMs: number;
-        resolve: () => void;
-      }
-    | null = null;
+  // ── Nuclear-specific state ───────────────────────────────────────────────────
 
   let activeFilter: FilterType = "all";
   let activeCountry: string | null = null;
   let selectedFacility: Facility | null = null;
+  let threatMode = false;
+  let threatTarget: ThreatTarget | null = null;
+  let historicMode = false;
 
   const points: {
     ring: THREE.Mesh;
@@ -106,18 +74,13 @@ export function createThreeScene(
     yearScale: number;
   }[] = [];
 
-  let globe: THREE.Mesh;
-  let bordersGroup: THREE.Group | null = null;
   let rangeDomesGroup: THREE.Group | null = null;
   let targetArcsGroup: THREE.Group | null = null;
-  let threatMode = false;
-  let threatTarget: ThreatTarget | null = null;
   let threatMarkerGroup: THREE.Group | null = null;
   let threatArcsGroup: THREE.Group | null = null;
   let patrolGroup: THREE.Group | null = null;
   let cityMarkers: { mesh: THREE.Mesh; city: MajorCity }[] = [];
   let cityMarkersGroup: THREE.Group | null = null;
-  let historicMode = false;
   let countryMarkersGroup: THREE.Group | null = null;
   const countryMarkerItems: {
     ring: THREE.Mesh;
@@ -136,64 +99,18 @@ export function createThreeScene(
     currentLng: number;
   }[] = [];
 
-  function createStarfield() {
-    const geo = new THREE.BufferGeometry();
-    const positions = new Float32Array(3000 * 3);
-    for (let i = 0; i < 3000; i++) {
-      positions[i * 3] = (Math.random() - 0.5) * 100;
-      positions[i * 3 + 1] = (Math.random() - 0.5) * 100;
-      positions[i * 3 + 2] = (Math.random() - 0.5) * 100;
-    }
-    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    const mat = new THREE.PointsMaterial({
-      color: 0x334155,
-      size: 0.08,
-      sizeAttenuation: true,
-    });
-    scene.add(new THREE.Points(geo, mat));
-  }
+  // ── Core globe ───────────────────────────────────────────────────────────────
 
-  function createGlobe() {
-    const sphereGeo = new THREE.SphereGeometry(1, 64, 64);
+  const core = createGlobeCore(container, {
+    initialCameraZ: options?.initialCameraZ,
+    shouldResumeAutoRotate: () => !threatMode,
+    onCanvasHover: (raycaster, event) => checkHover(raycaster, event),
+    onCanvasClick: (raycaster, event) => checkClick(raycaster, event),
+  });
 
-    const texture = new THREE.TextureLoader().load("/earth-night.jpg");
-    texture.wrapS = THREE.ClampToEdgeWrapping;
-    texture.wrapT = THREE.ClampToEdgeWrapping;
+  const { globe, renderer } = core;
 
-    const sphereMat = new THREE.MeshPhongMaterial({
-      map: texture,
-      emissiveMap: texture,
-      color: 0xffffff,
-      emissive: 0x111111,
-      emissiveIntensity: 0.8,
-      specular: 0x1e3a5f,
-      shininess: 18,
-    });
-
-    globe = new THREE.Mesh(sphereGeo, sphereMat);
-    scene.add(globe);
-
-    const wireGeo = new THREE.SphereGeometry(1.002, 36, 18);
-    const wireMat = new THREE.MeshBasicMaterial({
-      color: 0x1e3a5f,
-      wireframe: true,
-      transparent: true,
-      opacity: 0.08,
-    });
-    const wire = new THREE.Mesh(wireGeo, wireMat);
-    globe.add(wire);
-
-    const ringGeo = new THREE.RingGeometry(1.003, 1.007, 128);
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: 0x38bdf8,
-      transparent: true,
-      opacity: 0.1,
-      side: THREE.DoubleSide,
-    });
-    const ring = new THREE.Mesh(ringGeo, ringMat);
-    ring.rotation.x = Math.PI / 2;
-    globe.add(ring);
-  }
+  // ── Facility markers ─────────────────────────────────────────────────────────
 
   function createFacilityPoints() {
     facilities.forEach((f, i) => {
@@ -201,8 +118,8 @@ export function createThreeScene(
       const position = new THREE.Vector3(pos.x, pos.y, pos.z);
       const color = new THREE.Color(COUNTRY_COLORS[f.country] || "#ffffff");
 
-      // Secondary facilities (storage, test) render at 50% of primary marker size
-      const s = (f.type === "storage" || f.type === "test") ? 0.5 : 1.0;
+      // Storage/test sites render at 50% of primary marker size
+      const s = f.type === "storage" || f.type === "test" ? 0.5 : 1.0;
 
       const ringGeo = new THREE.RingGeometry(0.015 * s, 0.025 * s, 16);
       const ringMat = new THREE.MeshBasicMaterial({
@@ -250,8 +167,7 @@ export function createThreeScene(
   function setWarheadsByYear(byCountry: Record<string, number>) {
     points.forEach((p) => {
       const count = byCountry[p.facility.country] ?? 0;
-      // Hide markers entirely for years before this country had nuclear weapons.
-      // All visible markers use a fixed scale so size is uniform across countries.
+      // Binary scale: hide markers for countries with no weapons yet
       const scale = count === 0 ? 0 : 1;
       p.yearScale = scale;
       p.ring.scale.set(scale, scale, 1);
@@ -259,7 +175,13 @@ export function createThreeScene(
     });
   }
 
-  function patrolToFacility(patrol: SubmarinePatrol, lat: number, lng: number): Facility {
+  // ── Patrol visuals ───────────────────────────────────────────────────────────
+
+  function patrolToFacility(
+    patrol: SubmarinePatrol,
+    lat: number,
+    lng: number
+  ): Facility {
     return {
       name: patrol.name,
       country: patrol.country,
@@ -331,6 +253,23 @@ export function createThreeScene(
     });
   }
 
+  function updatePatrolVisibility() {
+    if (!patrolGroup) return;
+    const show =
+      (activeFilter === "all" || activeFilter === "submarine") &&
+      (!activeCountry ||
+        SUBMARINE_PATROLS.some((p) => p.country === activeCountry));
+    patrolGroup.visible = show;
+    if (!show) return;
+    patrolItems.forEach((item) => {
+      const countryMatch = !activeCountry || item.patrol.country === activeCountry;
+      item.pathLine.visible = countryMatch;
+      item.subMesh.visible = countryMatch;
+    });
+  }
+
+  // ── City markers ─────────────────────────────────────────────────────────────
+
   function clearCityMarkers() {
     if (cityMarkersGroup && globe) {
       globe.remove(cityMarkersGroup);
@@ -372,6 +311,8 @@ export function createThreeScene(
       cityMarkers.push({ mesh, city });
     });
   }
+
+  // ── Country markers (historic mode) ─────────────────────────────────────────
 
   function clearCountryMarkers() {
     if (countryMarkersGroup && globe) {
@@ -455,13 +396,14 @@ export function createThreeScene(
       item.ring.visible = true;
       item.pulse.visible = true;
       item.outerRing.visible = true;
-      // Logarithmic scaling: small arsenals still visible
       const logScale = Math.log(count + 1) / Math.log(max + 1);
       const s = 0.35 + logScale * 0.65;
       item.ring.scale.set(s, s, 1);
       item.outerRing.scale.set(s, s, 1);
     });
   }
+
+  // ── Flash effect ─────────────────────────────────────────────────────────────
 
   function flashAtImpl(lat: number, lng: number) {
     if (!globe) return;
@@ -504,53 +446,7 @@ export function createThreeScene(
     }
   }
 
-  function updatePatrolVisibility() {
-    if (!patrolGroup) return;
-    const show =
-      (activeFilter === "all" || activeFilter === "submarine") &&
-      (!activeCountry || SUBMARINE_PATROLS.some((p) => p.country === activeCountry));
-    patrolGroup.visible = show;
-    if (!show) return;
-    patrolItems.forEach((item) => {
-      const countryMatch = !activeCountry || item.patrol.country === activeCountry;
-      item.pathLine.visible = countryMatch;
-      item.subMesh.visible = countryMatch;
-    });
-  }
-
-  function createAtmosphere() {
-    const atmosGeo = new THREE.SphereGeometry(1.05, 64, 64);
-    const atmosMat = new THREE.ShaderMaterial({
-      vertexShader: `
-        varying vec3 vNormal;
-        void main() {
-          vNormal = normalize(normalMatrix * normal);
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        varying vec3 vNormal;
-        void main() {
-          float intensity = pow(0.6 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0);
-          gl_FragColor = vec4(0.22, 0.74, 0.97, 0.15) * intensity;
-        }
-      `,
-      blending: THREE.AdditiveBlending,
-      side: THREE.BackSide,
-      transparent: true,
-    });
-    scene.add(new THREE.Mesh(atmosGeo, atmosMat));
-  }
-
-  function setupLights() {
-    scene.add(new THREE.AmbientLight(0x334155, 1.2));
-    const dirLight = new THREE.DirectionalLight(0x94a3b8, 1.5);
-    dirLight.position.set(5, 3, 5);
-    scene.add(dirLight);
-    const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.3);
-    rimLight.position.set(-5, -2, -3);
-    scene.add(rimLight);
-  }
+  // ── Visibility ───────────────────────────────────────────────────────────────
 
   function isVisible(f: Facility) {
     if (activeFilter !== "all" && f.type !== activeFilter) return false;
@@ -569,6 +465,8 @@ export function createThreeScene(
     if (!historicMode) updatePatrolVisibility();
   }
 
+  // ── Range domes ──────────────────────────────────────────────────────────────
+
   function clearRangeDomes() {
     if (rangeDomesGroup && globe) {
       globe.remove(rangeDomesGroup);
@@ -581,104 +479,17 @@ export function createThreeScene(
     }
   }
 
-  function clearCountryBorders() {
-    if (bordersGroup && globe) {
-      globe.remove(bordersGroup);
-      bordersGroup.children.forEach((child) => {
-        const line = child as THREE.Line;
-        line.geometry.dispose();
-        (line.material as THREE.LineBasicMaterial).dispose();
-      });
-      bordersGroup = null;
-    }
-  }
-
-  function addCountryBorders(geojson: any) {
-    if (!globe) return;
-    clearCountryBorders();
-
-    bordersGroup = new THREE.Group();
-    globe.add(bordersGroup);
-
-    const nuclearStates = new Set([
-      "United States",
-      "Russia",
-      "China",
-      "France",
-      "United Kingdom",
-      "India",
-      "Pakistan",
-      "Israel",
-      "North Korea",
-    ]);
-
-    const features: any[] = geojson.features || [];
-
-    features.forEach((feature) => {
-      const geom = feature.geometry;
-      if (!geom) return;
-
-      const adminName: string =
-        feature.properties?.ADMIN ||
-        feature.properties?.SOVEREIGNT ||
-        feature.properties?.NAME ||
-        "";
-
-      const isNuclear = nuclearStates.has(adminName);
-      const opacity = isNuclear ? 0.7 : 0.3;
-
-      const processPolygon = (coords: number[][][]) => {
-        coords.forEach((ring) => {
-          const points: THREE.Vector3[] = [];
-
-          ring.forEach(([lng, lat]) => {
-            const p = latLngToVector3(lat, lng, 1.003);
-            points.push(new THREE.Vector3(p.x, p.y, p.z));
-          });
-
-          if (points.length < 2) return;
-          const first = points[0];
-          const last = points[points.length - 1];
-          if (!first.equals(last)) {
-            points.push(first.clone());
-          }
-
-          const geo = new THREE.BufferGeometry().setFromPoints(points);
-          const mat = new THREE.LineBasicMaterial({
-            color: 0x1e3a5f,
-            transparent: true,
-            opacity,
-          });
-          const line = new THREE.Line(geo, mat);
-          bordersGroup?.add(line);
-        });
-      };
-
-      if (geom.type === "Polygon") {
-        processPolygon(geom.coordinates as number[][][]);
-      } else if (geom.type === "MultiPolygon") {
-        (geom.coordinates as number[][][][]).forEach((poly) =>
-          processPolygon(poly)
-        );
-      }
-    });
-  }
-
   function addRangeDome(f: Facility) {
     if (!f.range) return;
-
     const radius = 1.02;
     const angularRadius = f.range / 6371;
     const d = latLngToVector3(f.lat, f.lng, 1);
     const centerDir = new THREE.Vector3(d.x, d.y, d.z).normalize();
-
     const domeGeo = new THREE.SphereGeometry(radius, 64, 64);
-
     const uniforms = {
       uCenterDir: { value: centerDir },
       uCosRadius: { value: Math.cos(angularRadius) },
     };
-
     const domeMat = new THREE.ShaderMaterial({
       uniforms,
       vertexShader: `
@@ -710,7 +521,6 @@ export function createThreeScene(
       depthWrite: false,
       side: THREE.DoubleSide,
     });
-
     const dome = new THREE.Mesh(domeGeo, domeMat);
     rangeDomesGroup?.add(dome);
   }
@@ -723,14 +533,13 @@ export function createThreeScene(
     addRangeDome(f);
   }
 
+  // ── Target arcs ──────────────────────────────────────────────────────────────
+
   function clearTargetArcs() {
     if (targetArcsGroup && globe) {
       globe.remove(targetArcsGroup);
       targetArcsGroup.children.forEach((child) => {
-        if (child instanceof THREE.Line) {
-          child.geometry.dispose();
-          (child.material as THREE.Material).dispose();
-        } else if (child instanceof THREE.Mesh) {
+        if (child instanceof THREE.Line || child instanceof THREE.Mesh) {
           child.geometry.dispose();
           (child.material as THREE.Material).dispose();
         }
@@ -755,21 +564,18 @@ export function createThreeScene(
     f.likelyTargets.forEach((target) => {
       const endPos = latLngToVector3(target.lat, target.lng, radius);
       const endVec = new THREE.Vector3(endPos.x, endPos.y, endPos.z);
-      const midDir = new THREE.Vector3()
-        .addVectors(startVec, endVec)
-        .normalize();
+      const midDir = new THREE.Vector3().addVectors(startVec, endVec).normalize();
       const midVec = midDir.multiplyScalar(midRadius);
 
       const curve = new THREE.QuadraticBezierCurve3(startVec, midVec, endVec);
-      const points = curve.getPoints(64);
-      const geo = new THREE.BufferGeometry().setFromPoints(points);
+      const pts = curve.getPoints(64);
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
       const mat = new THREE.LineBasicMaterial({
         color: countryColor,
         transparent: true,
         opacity: 0.6,
       });
-      const line = new THREE.Line(geo, mat);
-      targetArcsGroup!.add(line);
+      targetArcsGroup!.add(new THREE.Line(geo, mat));
 
       const diamondGeo = new THREE.OctahedronGeometry(0.018, 0);
       const diamondMat = new THREE.MeshBasicMaterial({
@@ -785,6 +591,8 @@ export function createThreeScene(
     });
   }
 
+  // ── Threat marker ────────────────────────────────────────────────────────────
+
   function clearThreatMarker() {
     if (threatMarkerGroup && globe) {
       globe.remove(threatMarkerGroup);
@@ -795,22 +603,6 @@ export function createThreeScene(
         }
       });
       threatMarkerGroup = null;
-    }
-  }
-
-  function clearThreatArcs() {
-    if (threatArcsGroup && globe) {
-      globe.remove(threatArcsGroup);
-      threatArcsGroup.children.forEach((child) => {
-        if (child instanceof THREE.Line) {
-          child.geometry.dispose();
-          (child.material as THREE.Material).dispose();
-        } else if (child instanceof THREE.Mesh) {
-          child.geometry.dispose();
-          (child.material as THREE.Material).dispose();
-        }
-      });
-      threatArcsGroup = null;
     }
   }
 
@@ -853,6 +645,21 @@ export function createThreeScene(
     globe.add(threatMarkerGroup);
   }
 
+  // ── Threat arcs ──────────────────────────────────────────────────────────────
+
+  function clearThreatArcs() {
+    if (threatArcsGroup && globe) {
+      globe.remove(threatArcsGroup);
+      threatArcsGroup.children.forEach((child) => {
+        if (child instanceof THREE.Line || child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          (child.material as THREE.Material).dispose();
+        }
+      });
+      threatArcsGroup = null;
+    }
+  }
+
   function setThreatArcsImpl(facilityList: Facility[]) {
     clearThreatArcs();
     if (!threatTarget || !facilityList.length) return;
@@ -866,9 +673,7 @@ export function createThreeScene(
     facilityList.forEach((f) => {
       const startPos = latLngToVector3(f.lat, f.lng, radius);
       const startVec = new THREE.Vector3(startPos.x, startPos.y, startPos.z);
-      const midDir = new THREE.Vector3()
-        .addVectors(startVec, endVec)
-        .normalize();
+      const midDir = new THREE.Vector3().addVectors(startVec, endVec).normalize();
       const midVec = midDir.clone().multiplyScalar(midRadius);
       const curve = new THREE.QuadraticBezierCurve3(startVec, midVec, endVec);
       const pts = curve.getPoints(48);
@@ -879,8 +684,8 @@ export function createThreeScene(
         opacity: 0.7,
         linewidth: 1,
       });
-      const line = new THREE.Line(geo, mat);
-      threatArcsGroup!.add(line);
+      threatArcsGroup!.add(new THREE.Line(geo, mat));
+
       const dotGeo = new THREE.CircleGeometry(0.006, 12);
       const dotMat = new THREE.MeshBasicMaterial({
         color: redColor,
@@ -905,17 +710,9 @@ export function createThreeScene(
     });
   }
 
-  function centerGlobeOnImpl(lat: number, lng: number) {
-    targetRotation.x = lat * (Math.PI / 180);
-    targetRotation.y = -(lng + 90) * (Math.PI / 180);
-    autoRotate = false;
-  }
+  // ── Hover / Click raycasting ─────────────────────────────────────────────────
 
-  function checkHover(e: MouseEvent) {
-    const rect = renderer.domElement.getBoundingClientRect();
-    mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-    raycaster.setFromCamera(mouse, camera);
+  function checkHover(raycaster: THREE.Raycaster, e: MouseEvent) {
     const meshes = points.flatMap((p) => [p.ring, p.dot]);
     const intersects = raycaster.intersectObjects(meshes);
 
@@ -925,20 +722,20 @@ export function createThreeScene(
       if (idx !== undefined) {
         const f = facilities[idx];
         if (isVisible(f)) {
-          callbacks.onHoverFacility(f, {
-            x: e.clientX + 14,
-            y: e.clientY - 10,
-          });
+          callbacks.onHoverFacility(f, { x: e.clientX + 14, y: e.clientY - 10 });
           renderer.domElement.style.cursor = "pointer";
           return;
         }
       }
     }
     if (patrolGroup?.visible) {
-      const subMeshes = patrolItems.filter((i) => i.subMesh.visible).map((i) => i.subMesh);
+      const subMeshes = patrolItems
+        .filter((i) => i.subMesh.visible)
+        .map((i) => i.subMesh);
       const patrolHits = raycaster.intersectObjects(subMeshes);
       if (patrolHits.length > 0) {
-        const patrolIdx = (patrolHits[0].object.userData as any).patrolIndex as number | undefined;
+        const patrolIdx = (patrolHits[0].object.userData as any)
+          .patrolIndex as number | undefined;
         if (patrolIdx !== undefined && patrolItems[patrolIdx]) {
           const item = patrolItems[patrolIdx];
           const fac = patrolToFacility(item.patrol, item.currentLat, item.currentLng);
@@ -961,17 +758,13 @@ export function createThreeScene(
     renderer.domElement.style.cursor = "grab";
   }
 
-  function checkClick(e: MouseEvent) {
-    const rect = renderer.domElement.getBoundingClientRect();
-    mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-    raycaster.setFromCamera(mouse, camera);
-
+  function checkClick(raycaster: THREE.Raycaster, _e: MouseEvent) {
     if (threatMode && callbacks.onCityClick && cityMarkersGroup?.visible) {
       const cityMeshes = cityMarkers.map((c) => c.mesh);
       const cityHits = raycaster.intersectObjects(cityMeshes);
       if (cityHits.length > 0) {
-        const cityIdx = (cityHits[0].object.userData as any).cityIndex as number | undefined;
+        const cityIdx = (cityHits[0].object.userData as any)
+          .cityIndex as number | undefined;
         if (cityIdx !== undefined && cityMarkers[cityIdx]) {
           callbacks.onCityClick(cityMarkers[cityIdx].city);
           return;
@@ -990,158 +783,46 @@ export function createThreeScene(
           showTargetsForFacilityImpl(null);
           selectedFacility = f;
           callbacks.onSelectFacility(f);
-          if (autoRotateResumeTimeoutId) {
-            clearTimeout(autoRotateResumeTimeoutId);
-            autoRotateResumeTimeoutId = null;
-          }
-          autoRotate = false;
-          centerGlobeOnImpl(f.lat, f.lng);
+          core.cancelAutoRotateResume();
+          core.setAutoRotate(false);
+          core.centerGlobeOn(f.lat, f.lng);
           clearRangeDomes();
         }
       }
       return;
     }
+
     if (patrolGroup?.visible) {
-      const subMeshes = patrolItems.filter((i) => i.subMesh.visible).map((i) => i.subMesh);
+      const subMeshes = patrolItems
+        .filter((i) => i.subMesh.visible)
+        .map((i) => i.subMesh);
       intersects = raycaster.intersectObjects(subMeshes);
       if (intersects.length > 0) {
-        const patrolIdx = (intersects[0].object.userData as any).patrolIndex as number | undefined;
+        const patrolIdx = (intersects[0].object.userData as any)
+          .patrolIndex as number | undefined;
         if (patrolIdx !== undefined && patrolItems[patrolIdx]) {
           const item = patrolItems[patrolIdx];
-          const fac = patrolToFacility(item.patrol, item.currentLat, item.currentLng);
+          const fac = patrolToFacility(
+            item.patrol,
+            item.currentLat,
+            item.currentLng
+          );
           showTargetsForFacilityImpl(null);
           selectedFacility = fac;
           callbacks.onSelectFacility(fac);
-          if (autoRotateResumeTimeoutId) {
-            clearTimeout(autoRotateResumeTimeoutId);
-            autoRotateResumeTimeoutId = null;
-          }
-          autoRotate = false;
-          centerGlobeOnImpl(item.currentLat, item.currentLng);
+          core.cancelAutoRotateResume();
+          core.setAutoRotate(false);
+          core.centerGlobeOn(item.currentLat, item.currentLng);
           clearRangeDomes();
         }
       }
     }
   }
 
-  function scheduleAutoRotateResume() {
-    if (threatMode) return;
-    if (autoRotateResumeTimeoutId) clearTimeout(autoRotateResumeTimeoutId);
-    autoRotateResumeTimeoutId = setTimeout(() => {
-      autoRotateResumeTimeoutId = null;
-      autoRotate = true;
-    }, 3000);
-  }
+  // ── Animation callback (nuclear-specific) ────────────────────────────────────
 
-  function setupEvents() {
-    const canvas = renderer.domElement;
-
-    canvas.addEventListener("mousedown", (e) => {
-      isDragging = true;
-      autoRotate = false;
-      prevMouse = { x: e.clientX, y: e.clientY };
-    });
-
-    canvas.addEventListener("mousemove", (e) => {
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
-      if (isDragging) {
-        const dx = e.clientX - prevMouse.x;
-        const dy = e.clientY - prevMouse.y;
-        rotationVelocity = { x: dy * 0.003, y: dx * 0.003 };
-        targetRotation.x += rotationVelocity.x;
-        targetRotation.y += rotationVelocity.y;
-        prevMouse = { x: e.clientX, y: e.clientY };
-      }
-
-      checkHover(e);
-    });
-
-    canvas.addEventListener("mouseup", () => {
-      isDragging = false;
-      scheduleAutoRotateResume();
-    });
-
-    canvas.addEventListener(
-      "wheel",
-      (e) => {
-        e.preventDefault();
-        camera.position.z = Math.max(
-          1.8,
-          Math.min(6, camera.position.z + e.deltaY * 0.002)
-        );
-      },
-      { passive: false }
-    );
-
-    canvas.addEventListener("click", (e) => {
-      checkClick(e);
-    });
-
-    window.addEventListener("resize", () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    });
-  }
-
-  function easeOutCubic(t: number) {
-    return 1 - Math.pow(1 - t, 3);
-  }
-
-  function flyCameraToZImpl(targetZ: number, durationMs: number) {
-    const fromZ = camera.position.z;
-    const startMs = Date.now();
-    if (cameraFlight) {
-      cameraFlight.resolve();
-      cameraFlight = null;
-    }
-    autoRotate = false;
-
-    return new Promise<void>((resolve) => {
-      cameraFlight = {
-        fromZ,
-        toZ: targetZ,
-        startMs,
-        durationMs,
-        resolve,
-      };
-    });
-  }
-
-  function animate() {
-    requestAnimationFrame(animate);
-
-    if (autoRotate) {
-      targetRotation.y += 0.0006;
-    }
-
-    rotationVelocity.x *= 0.92;
-    rotationVelocity.y *= 0.92;
-
-    globe.rotation.x += (targetRotation.x - globe.rotation.x) * 0.05;
-    globe.rotation.y += (targetRotation.y - globe.rotation.y) * 0.05;
-
-    if (cameraFlight) {
-      const nowMs = Date.now();
-      const t = (nowMs - cameraFlight.startMs) / cameraFlight.durationMs;
-      const clamped = Math.min(1, Math.max(0, t));
-      const eased = easeOutCubic(clamped);
-      camera.position.z =
-        cameraFlight.fromZ +
-        (cameraFlight.toZ - cameraFlight.fromZ) * eased;
-
-      if (clamped >= 1) {
-        const resolve = cameraFlight.resolve;
-        cameraFlight = null;
-        autoRotate = true;
-        resolve();
-      }
-    }
-
-    const time = Date.now() * 0.001;
+  core.addAnimationCallback("nuclear", (time, nowMs) => {
+    // Facility pulse animation
     points.forEach((p, i) => {
       if (p.pulse.visible && p.yearScale > 0) {
         const scale = p.yearScale * (1 + Math.sin(time * 2 + i * 0.5) * 0.8);
@@ -1150,33 +831,47 @@ export function createThreeScene(
         mat.opacity = 0.4 * (1 - (scale / p.yearScale - 1) / 0.8);
       }
     });
+
+    // Historic mode country marker pulse
     if (historicMode) {
       countryMarkerItems.forEach((item, i) => {
         if (!item.pulse.visible) return;
         const baseScale = item.ring.scale.x;
-        const pulseScale = baseScale * (1 + Math.sin(time * 1.5 + i * 0.8) * 0.6);
+        const pulseScale =
+          baseScale * (1 + Math.sin(time * 1.5 + i * 0.8) * 0.6);
         item.pulse.scale.set(pulseScale, pulseScale, 1);
         const mat = item.pulse.material as THREE.MeshBasicMaterial;
-        mat.opacity = 0.45 * (1 - Math.abs(Math.sin(time * 1.5 + i * 0.8)) * 0.5);
+        mat.opacity =
+          0.45 * (1 - Math.abs(Math.sin(time * 1.5 + i * 0.8)) * 0.5);
         const outerScale = baseScale * (1 + Math.sin(time * 0.8 + i * 0.6) * 0.15);
         item.outerRing.scale.set(outerScale, outerScale, 1);
       });
     }
+
+    // Flash items
     updateFlashItems();
+
+    // Target arc diamond pulse
     if (targetArcsGroup) {
       targetArcsGroup.children.forEach((child) => {
-        if (child instanceof THREE.Mesh && (child.userData as { isTargetDiamond?: boolean }).isTargetDiamond) {
+        if (
+          child instanceof THREE.Mesh &&
+          (child.userData as { isTargetDiamond?: boolean }).isTargetDiamond
+        ) {
           const s = 0.85 + Math.sin(time * 2.5) * 0.2;
           child.scale.set(s, s, s);
         }
       });
     }
+
+    // Threat marker pulse
     if (threatMarkerGroup) {
       const s = 0.92 + Math.sin(time * 2.2) * 0.1;
       threatMarkerGroup.scale.set(s, s, 1);
     }
 
-    const patrolT = (Date.now() / 60000) % 1;
+    // Patrol submarine animation
+    const patrolT = (nowMs / 60000) % 1;
     patrolItems.forEach((item, i) => {
       const n = item.pathVecs.length;
       const seg = (patrolT * n) % n;
@@ -1194,20 +889,16 @@ export function createThreeScene(
       const pulseScale = 0.95 + Math.sin(time * 2.5 + i * 0.7) * 0.1;
       item.subMesh.scale.set(pulseScale, pulseScale, pulseScale);
     });
+  });
 
-    renderer.render(scene, camera);
-  }
+  // ── Initialize nuclear visuals ───────────────────────────────────────────────
 
-  createStarfield();
-  createGlobe();
   createFacilityPoints();
   createPatrolVisuals();
   createCountryMarkersGroup();
-  createAtmosphere();
-  setupLights();
-  setupEvents();
   updatePointVisibility();
-  animate();
+
+  // ── SceneApi ─────────────────────────────────────────────────────────────────
 
   return {
     setFilter(filter: FilterType) {
@@ -1228,21 +919,15 @@ export function createThreeScene(
     setHistoricMode(active: boolean) {
       historicMode = active;
       if (active) {
-        // Clear threat / selection state
         clearRangeDomes();
         clearTargetArcs();
         clearThreatMarker();
         clearThreatArcs();
         if (cityMarkersGroup) cityMarkersGroup.visible = false;
         if (countryMarkersGroup) countryMarkersGroup.visible = true;
-        if (autoRotateResumeTimeoutId) {
-          clearTimeout(autoRotateResumeTimeoutId);
-          autoRotateResumeTimeoutId = null;
-        }
-        autoRotate = true;
+        core.cancelAutoRotateResume();
       } else {
         if (countryMarkersGroup) countryMarkersGroup.visible = false;
-        autoRotate = true;
       }
       updatePointVisibility();
     },
@@ -1252,7 +937,7 @@ export function createThreeScene(
     flashAt(lat: number, lng: number) {
       flashAtImpl(lat, lng);
     },
-    addCountryBorders,
+    addCountryBorders: core.addCountryBorders,
     showRangeForFacility(facility: Facility | null) {
       showRangeForFacilityImpl(facility);
     },
@@ -1264,23 +949,19 @@ export function createThreeScene(
       if (active) {
         clearRangeDomes();
         if (cityMarkersGroup) cityMarkersGroup.visible = true;
-        if (autoRotateResumeTimeoutId) {
-          clearTimeout(autoRotateResumeTimeoutId);
-          autoRotateResumeTimeoutId = null;
-        }
-        autoRotate = false;
+        core.cancelAutoRotateResume();
+        core.setAutoRotate(false);
       } else {
         setThreatTargetImpl(null);
         clearThreatArcs();
         clearRangeDomes();
         if (cityMarkersGroup) cityMarkersGroup.visible = false;
-        autoRotate = true;
       }
       renderer.domElement.style.cursor = "grab";
     },
     setThreatTarget(target: ThreatTarget | null) {
       setThreatTargetImpl(target);
-      if (target) centerGlobeOnImpl(target.lat, target.lng);
+      if (target) core.centerGlobeOn(target.lat, target.lng);
     },
     setThreatArcs(facilityList: Facility[]) {
       setThreatArcsImpl(facilityList);
@@ -1288,25 +969,15 @@ export function createThreeScene(
     setThreatRangeDomes(facilityList: Facility[]) {
       setThreatRangeDomesImpl(facilityList);
     },
-    centerGlobeOn(lat: number, lng: number) {
-      centerGlobeOnImpl(lat, lng);
-    },
-    scheduleAutoRotateResume() {
-      scheduleAutoRotateResume();
-    },
-    flyCameraToDefault() {
-      return flyCameraToZImpl(defaultCameraZ, 2000);
-    },
+    centerGlobeOn: core.centerGlobeOn,
+    scheduleAutoRotateResume: core.scheduleAutoRotateResume,
+    flyCameraToDefault: core.flyCameraToDefault,
     dispose() {
-      if (autoRotateResumeTimeoutId) {
-        clearTimeout(autoRotateResumeTimeoutId);
-        autoRotateResumeTimeoutId = null;
-      }
+      core.removeAnimationCallback("nuclear");
       clearRangeDomes();
       clearTargetArcs();
       clearThreatMarker();
       clearThreatArcs();
-      clearCountryBorders();
       clearCountryMarkers();
       if (patrolGroup && globe) {
         patrolItems.forEach((item) => {
@@ -1319,9 +990,7 @@ export function createThreeScene(
         globe.remove(patrolGroup);
         patrolGroup = null;
       }
-      renderer.dispose();
-      container.innerHTML = "";
+      core.dispose();
     },
   };
 }
-

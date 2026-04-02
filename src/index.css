@@ -1078,6 +1078,15 @@ canvas {
   color: var(--accent);
 }
 
+.filter-label-row {
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  opacity: 0.6;
+  text-transform: uppercase;
+  margin: 8px 0 4px;
+}
+
 /* Tooltip */
 .tooltip {
   position: fixed;
@@ -1575,5 +1584,634 @@ canvas {
 
 .data-sources-modal a:hover {
   color: rgba(56, 189, 248, 0.95);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MIDDLE EAST MISSILE TRACKER
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* The ME page reuses .side-panel, .panel-card, .detail-panel, .stat-grid,
+   .country-list, .country-item, .filter-row, .filter-btn, .range-bar-bg,
+   .range-bar-fill, .tooltip, .controls-hint, .header, and all their
+   children from the nuclear tracker above.  Only ME-specific overrides
+   and new elements are added here. */
+
+/* UI layer wrapper – same stacking context as the nuclear tracker */
+.me-ui-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+}
+
+/* ── ME header logo icon (missile symbol, orange accent) ── */
+.me-logo-icon {
+  width: 36px;
+  height: 36px;
+  border: 2px solid #f97316;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  animation: me-pulse-ring 3s ease-in-out infinite;
+}
+
+@keyframes me-pulse-ring {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.3); }
+  50%       { box-shadow: 0 0 0 8px transparent; }
+}
+
+.me-logo-icon::after {
+  content: "◈";
+  font-size: 17px;
+  color: #f97316;
+}
+
+/* Override header title accent colour for ME page */
+.me-accent {
+  color: #f97316;
+}
+
+/* ── ME detail panel (mirrors .detail-panel but right-side slide-in) ── */
+.me-detail-panel {
+  position: fixed;
+  top: 116px;
+  right: 16px;
+  width: 340px;
+  max-height: calc(100vh - 148px);
+  z-index: 10;
+  pointer-events: auto;
+  transform: translateX(360px);
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.me-detail-panel::-webkit-scrollbar { display: none; }
+
+.me-detail-panel.open {
+  transform: translateX(0);
+}
+
+.me-detail-card {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+/* ── Detail meta row (badge + country) ── */
+.me-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.me-type-badge {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  font-weight: 500;
+  padding: 3px 7px;
+  border-radius: 3px;
+  border: 1px solid;
+  text-transform: uppercase;
+}
+
+.me-country-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  opacity: 0.85;
+}
+
+/* ── Systems list ── */
+.me-systems-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 14px 0 8px;
+}
+
+.me-systems-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.me-systems-label::before {
+  content: "";
+  width: 8px;
+  height: 2px;
+  background: var(--accent);
+}
+
+.me-clear-ranges-btn {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.08);
+  color: #f87171;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.me-clear-ranges-btn:hover {
+  border-color: rgba(239, 68, 68, 0.6);
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.me-system-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.me-range-btn {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.8px;
+  padding: 3px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.me-range-btn:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: var(--text-bright);
+}
+.me-range-btn.active {
+  /* color/border/background overridden inline per base color */
+}
+
+.me-systems-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.me-system-item {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.me-system-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.me-system-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-bright);
+  line-height: 1.2;
+}
+
+/* ── System type badge (reused for legend too) ── */
+.me-badge {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+/* ── System range bar ── */
+.me-system-range {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.me-system-range .range-bar-bg {
+  flex: 1;
+}
+
+.me-system-range-km {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  min-width: 64px;
+  text-align: right;
+}
+
+/* ── Description text ── */
+.me-description {
+  margin-top: 14px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--text-dim);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 14px;
+}
+
+/* ── Legend ── */
+.me-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.me-legend-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.me-legend-heading {
+  font-size: 9px;
+  letter-spacing: 2px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+  margin-top: 2px;
+}
+
+.me-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.me-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.me-legend-dot--pulse {
+  box-shadow: 0 0 5px currentColor;
+  animation: me-dot-pulse 2s ease-in-out infinite;
+}
+
+@keyframes me-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}
+
+.me-legend-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.07);
+  margin: 10px 0;
+}
+
+/* ── Strike History ── */
+.me-strike-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0;
+}
+
+.me-strike-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.me-strike-item {
+  padding: 8px 10px;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.me-strike-item:hover {
+  border-color: rgba(249, 115, 22, 0.35);
+  background: rgba(249, 115, 22, 0.06);
+}
+
+.me-strike-item.active {
+  border-color: rgba(249, 115, 22, 0.55);
+  background: rgba(249, 115, 22, 0.1);
+}
+
+.me-strike-date {
+  font-size: 9px;
+  letter-spacing: 0.8px;
+  color: #fb923c;
+  opacity: 0.8;
+  font-family: "JetBrains Mono", monospace;
+  text-transform: uppercase;
+}
+
+.me-strike-codename {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-bright);
+  margin: 2px 0 1px;
+}
+
+.me-strike-oneliner {
+  font-size: 10px;
+  color: var(--text-dim);
+  opacity: 0.75;
+}
+
+/* Strike detail card */
+.me-strike-title {
+  color: #fb923c;
+}
+
+.me-strike-section-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  opacity: 0.55;
+  margin: 10px 0 4px;
+}
+
+.me-strike-point-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.me-strike-point {
+  font-size: 11px;
+  font-family: "JetBrains Mono", monospace;
+  padding: 3px 0;
+}
+
+.me-strike-point--origin {
+  color: #fb923c;
+}
+
+.me-strike-point--target {
+  color: #f87171;
+}
+
+.me-strike-detail-text {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin-bottom: 4px;
+}
+
+/* ── Country Profile Panel ───────────────────────────────────────────────── */
+
+.me-country-profile-flag {
+  font-size: 26px;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+/* Collapsible section */
+.me-profile-section {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+.me-profile-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0 0 6px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--accent);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+  transition: opacity 0.15s;
+}
+
+.me-profile-section-header:hover {
+  opacity: 0.75;
+}
+
+.me-profile-section-header > span:first-child {
+  flex: 1;
+}
+
+.me-profile-section-meta {
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 0;
+  font-weight: 400;
+  text-transform: none;
+}
+
+.me-profile-chevron {
+  font-size: 8px;
+  color: var(--text-dim);
+}
+
+.me-profile-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Base items in profile — clickable */
+.me-profile-base-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 5px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.me-profile-base-item:hover {
+  background: rgba(56, 189, 248, 0.06);
+  border-color: rgba(56, 189, 248, 0.25);
+}
+
+.me-profile-base-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  justify-content: space-between;
+}
+
+.me-profile-base-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-bright);
+  line-height: 1.3;
+  flex: 1;
+}
+
+.me-profile-base-systems {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.me-profile-system-chip {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  padding: 2px 5px;
+  white-space: nowrap;
+}
+
+/* Air Defense rows */
+.me-profile-ad-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+  border-left: 2px solid rgba(255, 255, 255, 0.08);
+}
+
+.me-profile-ad-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  justify-content: space-between;
+}
+
+.me-profile-ad-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-bright);
+  line-height: 1.3;
+  flex: 1;
+}
+
+.me-profile-ad-status {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.4px;
+  border-radius: 3px;
+  padding: 2px 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+
+.ad-status-green {
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  color: #86efac;
+}
+
+.ad-status-amber {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fcd34d;
+}
+
+.ad-status-red {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #f87171;
+}
+
+.ad-status-dim {
+  background: rgba(100, 116, 139, 0.1);
+  border: 1px solid rgba(100, 116, 139, 0.25);
+  color: var(--text-dim);
+}
+
+.me-profile-ad-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.me-profile-ad-type {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  color: var(--text-dim);
+}
+
+.me-profile-ad-range {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  color: var(--accent);
+  opacity: 0.8;
+}
+
+.me-profile-notes {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  color: var(--text-dim);
+  opacity: 0.65;
+  line-height: 1.5;
+  margin-top: 2px;
+}
+
+/* Air Force rows (reuse ad-row styles) */
+.me-profile-ac-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+  border-left: 2px solid rgba(99, 102, 241, 0.3);
+}
+
+.me-profile-ac-qty {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  color: #a5b4fc;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+
+/* Alliance list */
+.me-profile-alliance-item {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  padding: 2px 0;
 }
 
