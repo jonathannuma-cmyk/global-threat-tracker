@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import earcut from "earcut";
 import { latLngToVector3 } from "./data";
 import { createGlobeCore } from "./globeCore";
 import {
@@ -437,22 +438,41 @@ export function createMEScene(
       const borderHex = ME_BORDER_HEX[adminName] ?? 0x7dd3fc;
       const borderColor = new THREE.Color(borderHex);
 
+      // Densify a ring by inserting intermediate points along edges longer than maxDeg degrees.
+      // Returns an open ring (no closing duplicate).
+      function densifyRing(ring: number[][], maxDeg: number): number[][] {
+        const out: number[][] = [];
+        const n = ring.length - 1; // exclude closing duplicate
+        for (let i = 0; i < n; i++) {
+          const [x0, y0] = ring[i];
+          const [x1, y1] = ring[(i + 1) % n];
+          const dx = x1 - x0, dy = y1 - y0;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const steps = Math.max(1, Math.ceil(dist / maxDeg));
+          out.push(ring[i]);
+          for (let s = 1; s < steps; s++) {
+            const t = s / steps;
+            out.push([x0 + dx * t, y0 + dy * t]);
+          }
+        }
+        return out;
+      }
+
       const processPolygon = (coords: number[][][]) => {
+        // ── Border lines and glow for every ring ──
         coords.forEach((ring) => {
           const n = ring.length - 1; // exclude closing duplicate
           if (n < 2) return;
 
-          // ── Bright border line (main) ──
           const linePts: THREE.Vector3[] = [];
           for (let k = 0; k <= n; k++) {
-            const [lng, lat] = ring[k % n]; // wrap so closed
+            const [lng, lat] = ring[k % n];
             const p = latLngToVector3(lat, lng, 1.0035);
             linePts.push(new THREE.Vector3(p.x, p.y, p.z));
           }
-          const lineGeo = new THREE.BufferGeometry().setFromPoints(linePts);
           meOverlayGroup!.add(
             new THREE.Line(
-              lineGeo,
+              new THREE.BufferGeometry().setFromPoints(linePts),
               new THREE.LineBasicMaterial({
                 color: borderColor,
                 transparent: true,
@@ -462,17 +482,15 @@ export function createMEScene(
             )
           );
 
-          // ── Soft glow pass at slightly larger radius ──
           const glowPts: THREE.Vector3[] = [];
           for (let k = 0; k <= n; k++) {
             const [lng, lat] = ring[k % n];
             const p = latLngToVector3(lat, lng, 1.005);
             glowPts.push(new THREE.Vector3(p.x, p.y, p.z));
           }
-          const glowGeo = new THREE.BufferGeometry().setFromPoints(glowPts);
           meOverlayGroup!.add(
             new THREE.Line(
-              glowGeo,
+              new THREE.BufferGeometry().setFromPoints(glowPts),
               new THREE.LineBasicMaterial({
                 color: borderColor,
                 transparent: true,
@@ -481,51 +499,51 @@ export function createMEScene(
               })
             )
           );
-
-          // ── Very faint country fill via fan triangulation from centroid ──
-          if (n < 3) return;
-          let cLat = 0, cLon = 0;
-          for (let k = 0; k < n; k++) {
-            cLat += ring[k][1];
-            cLon += ring[k][0];
-          }
-          cLat /= n;
-          cLon /= n;
-
-          const verts: number[] = [];
-          const idx: number[] = [];
-
-          const cp = latLngToVector3(cLat, cLon, 1.001);
-          verts.push(cp.x, cp.y, cp.z); // vertex 0 — centroid
-
-          for (let k = 0; k < n; k++) {
-            const p = latLngToVector3(ring[k][1], ring[k][0], 1.001);
-            verts.push(p.x, p.y, p.z); // vertices 1..n
-          }
-
-          for (let j = 0; j < n; j++) {
-            idx.push(0, j + 1, ((j + 1) % n) + 1);
-          }
-
-          const fillGeo = new THREE.BufferGeometry();
-          fillGeo.setAttribute(
-            "position",
-            new THREE.Float32BufferAttribute(verts, 3)
-          );
-          fillGeo.setIndex(idx);
-
-          const fillMat = new THREE.MeshBasicMaterial({
-            color: borderColor,
-            transparent: true,
-            opacity: 0.06,
-            side: THREE.DoubleSide,
-            depthWrite: false,
-          });
-          const fillMesh = new THREE.Mesh(fillGeo, fillMat);
-          meOverlayGroup!.add(fillMesh);
-          if (!countryFillMaterials.has(adminName)) countryFillMaterials.set(adminName, []);
-          countryFillMaterials.get(adminName)!.push(fillMat);
         });
+
+        // ── Earcut fill mesh for the whole polygon (outer ring + holes) ──
+        if ((coords[0]?.length ?? 0) - 1 < 3) return;
+
+        const MAX_DEG = 1.0; // insert extra points on edges longer than 1°
+        const outerPts = densifyRing(coords[0], MAX_DEG);
+        const holePts = coords.slice(1).map((h) => densifyRing(h, MAX_DEG));
+
+        const flatCoords: number[] = [];
+        const holeIndices: number[] = [];
+
+        for (const [lng, lat] of outerPts) flatCoords.push(lng, lat);
+        for (const hole of holePts) {
+          holeIndices.push(flatCoords.length / 2);
+          for (const [lng, lat] of hole) flatCoords.push(lng, lat);
+        }
+
+        const triIdx = earcut(flatCoords, holeIndices.length > 0 ? holeIndices : undefined, 2);
+        if (triIdx.length === 0) return;
+
+        const totalPts = flatCoords.length / 2;
+        const verts: number[] = [];
+        for (let i = 0; i < totalPts; i++) {
+          const lng = flatCoords[i * 2];
+          const lat = flatCoords[i * 2 + 1];
+          const p = latLngToVector3(lat, lng, 1.001);
+          verts.push(p.x, p.y, p.z);
+        }
+
+        const fillGeo = new THREE.BufferGeometry();
+        fillGeo.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
+        fillGeo.setIndex(triIdx);
+
+        const fillMat = new THREE.MeshBasicMaterial({
+          color: borderColor,
+          transparent: true,
+          opacity: 0.06,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const fillMesh = new THREE.Mesh(fillGeo, fillMat);
+        meOverlayGroup!.add(fillMesh);
+        if (!countryFillMaterials.has(adminName)) countryFillMaterials.set(adminName, []);
+        countryFillMaterials.get(adminName)!.push(fillMat);
       };
 
       if (geom.type === "Polygon") {

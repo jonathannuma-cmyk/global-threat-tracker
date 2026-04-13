@@ -1984,6 +1984,273 @@ canvas {
   margin-bottom: 4px;
 }
 
+/* ── Strike Volume Chart ─────────────────────────────────────────────────── */
+
+.strike-chart-outer {
+  position: relative;
+  margin-bottom: 12px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.strike-chart-title {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8px;
+  letter-spacing: 1.2px;
+  color: #475569;
+  margin-bottom: 6px;
+}
+
+.strike-chart-scroll {
+  overflow-x: auto;
+  overflow-y: visible;
+  position: relative;
+  /* Custom scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: #1e293b transparent;
+}
+
+.strike-chart-scroll::-webkit-scrollbar {
+  height: 3px;
+}
+
+.strike-chart-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.strike-chart-scroll::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 2px;
+}
+
+.strike-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 8px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8px;
+  color: #64748b;
+  align-items: center;
+}
+
+.strike-chart-legend span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.strike-chart-legend-note {
+  margin-left: auto;
+  opacity: 0.7;
+}
+
+.strike-chart-swatch {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+.strike-chart-tooltip {
+  position: absolute;
+  z-index: 40;
+  background: rgba(8, 12, 20, 0.97);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 4px;
+  padding: 7px 9px;
+  pointer-events: none;
+  min-width: 160px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+}
+
+.strike-chart-tooltip-date {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  color: #94a3b8;
+  letter-spacing: 0.6px;
+  margin-bottom: 5px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 4px;
+}
+
+.strike-chart-tooltip-row {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+}
+
+.strike-chart-tooltip-row strong {
+  color: #e2e8f0;
+  margin-left: auto;
+  padding-left: 8px;
+}
+
+.strike-chart-tooltip-notes {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8px;
+  color: #facc15;
+  margin-top: 5px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  line-height: 1.4;
+}
+
+/* Campaign header in strike list */
+.me-campaign-header {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8px;
+  letter-spacing: 1.4px;
+  color: #f97316;
+  text-transform: uppercase;
+  margin: 10px 0 6px;
+  padding: 4px 8px;
+  background: rgba(249, 115, 22, 0.06);
+  border-left: 2px solid rgba(249, 115, 22, 0.5);
+  border-radius: 0 3px 3px 0;
+}
+
+/* ── Strike filter chips ─────────────────────────────────────────────────── */
+
+.me-strike-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 0 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 4px;
+}
+
+.me-strike-chip {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.me-strike-chip:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #94a3b8;
+}
+
+.me-strike-chip.active {
+  font-weight: 600;
+}
+
+/* ── Collapsible date headers ─────────────────────────────────────────────── */
+
+.me-date-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 6px 2px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-primary);
+  transition: background 0.1s;
+}
+
+.me-date-header:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.me-date-chevron {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid #475569;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+.me-date-chevron.open {
+  transform: rotate(90deg);
+}
+
+.me-date-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  color: #cbd5e1;
+  flex: 1;
+  text-transform: uppercase;
+}
+
+.me-date-count {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  color: #38bdf8;
+  border-radius: 10px;
+  padding: 1px 6px;
+  flex-shrink: 0;
+}
+
+/* ── Compact strike entries ───────────────────────────────────────────────── */
+
+.me-date-group {
+  padding-bottom: 2px;
+}
+
+.me-strike-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 8px 5px 12px;
+  margin: 1px 0;
+  border-left: 2px solid transparent;
+  border-radius: 0 3px 3px 0;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.me-strike-compact:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-left-color: rgba(56, 189, 248, 0.3);
+}
+
+.me-strike-compact.active {
+  background: rgba(56, 189, 248, 0.07);
+  border-left-color: #38bdf8;
+}
+
+.me-strike-compact-code {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  color: #f97316;
+  text-transform: uppercase;
+}
+
+.me-strike-compact-title {
+  font-size: 10px;
+  color: #94a3b8;
+  line-height: 1.3;
+}
+
 /* ── Country Profile Panel ───────────────────────────────────────────────── */
 
 .me-country-profile-flag {

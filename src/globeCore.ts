@@ -272,6 +272,9 @@ export function createGlobeCore(
   // ── Camera controls ──────────────────────────────────────────────────────────
 
   function centerGlobeOn(lat: number, lng: number) {
+    // Guard: NaN or Infinity would corrupt globe.rotation permanently, making
+    // the globe mesh and all its children (borders, markers, labels) invisible.
+    if (!isFinite(lat) || !isFinite(lng)) return;
     targetRotation.x = lat * (Math.PI / 180);
     targetRotation.y = -(lng + 90) * (Math.PI / 180);
     autoRotate = false;

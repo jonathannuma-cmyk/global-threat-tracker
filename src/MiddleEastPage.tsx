@@ -13,7 +13,12 @@ import {
   type MiddleEastBase,
   type SystemType,
 } from "./data/middleEastMissiles";
-import { IRAN_STRIKES, type IranStrike } from "./data/iranStrikes";
+import {
+  IRAN_STRIKES,
+  DAILY_STRIKE_DATA,
+  type IranStrike,
+  type DailyStrikeData,
+} from "./data/iranStrikes";
 import { COUNTRY_PROFILES } from "./data/countryProfiles";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -95,6 +100,338 @@ function countryBaseCounts(): Record<string, number> {
   return counts;
 }
 
+// ── Strike campaign grouping (computed once from static data) ─────────────────
+
+const CAMPAIGN_ORDER: string[] = [];
+const STRIKES_BY_CAMPAIGN: Record<string, IranStrike[]> = {};
+IRAN_STRIKES.forEach((strike) => {
+  const key = strike.campaign ?? "";
+  if (!STRIKES_BY_CAMPAIGN[key]) {
+    STRIKES_BY_CAMPAIGN[key] = [];
+    CAMPAIGN_ORDER.push(key);
+  }
+  STRIKES_BY_CAMPAIGN[key].push(strike);
+});
+
+// ── Strike category + filter chips ───────────────────────────────────────────
+
+const STRIKE_FILTER_CHIPS = [
+  { id: "all",            label: "All",              color: "#94a3b8" },
+  { id: "iran-israel",    label: "Iran → Israel",    color: "#ef4444" },
+  { id: "iran-gulf",      label: "Iran → Gulf",      color: "#f97316" },
+  { id: "us-israel-iran", label: "Israel/US → Iran", color: "#3b82f6" },
+  { id: "shipping",       label: "Shipping",          color: "#14b8a6" },
+  { id: "major",          label: "Major Event",       color: "#facc15" },
+] as const;
+
+type StrikeFilterId = typeof STRIKE_FILTER_CHIPS[number]["id"];
+
+function getStrikeCategory(
+  strike: IranStrike
+): Exclude<StrikeFilterId, "all" | "major"> | "other" {
+  const oLabels = strike.launchOrigins.map((o) => o.label).join(" ").toLowerCase();
+  const tLabels = strike.targets.map((t) => t.label).join(" ").toLowerCase();
+  const text = `${strike.title} ${strike.description}`.toLowerCase();
+
+  const fromIran =
+    oLabels.includes("iran") || oLabels.includes("irgc") || oLabels.includes("tehran");
+  const toIsrael =
+    tLabels.includes("israel") || tLabels.includes("tel aviv") ||
+    tLabels.includes("haifa") || tLabels.includes("bnei") ||
+    tLabels.includes("petah") || tLabels.includes("ramat") ||
+    tLabels.includes("hakirya") || tLabels.includes("sharif");
+  const toGulf =
+    tLabels.includes("kuwait") || tLabels.includes("saudi") ||
+    tLabels.includes("riyadh") || tLabels.includes("bahrain") ||
+    tLabels.includes("qatar") || tLabels.includes("arifjan") ||
+    tLabels.includes("erbil") || tLabels.includes("jubail") ||
+    tLabels.includes("al salem") || tLabels.includes("duqm");
+  const toIran =
+    tLabels.includes("iran") || tLabels.includes("tehran") ||
+    tLabels.includes("natanz") || tLabels.includes("fordow") ||
+    tLabels.includes("karaj") || tLabels.includes("bushehr") ||
+    tLabels.includes("kharg") || tLabels.includes("south pars") ||
+    tLabels.includes("beheshti") || tLabels.includes("pardis");
+  const isShipping =
+    text.includes("tanker") || text.includes("shipping") ||
+    text.includes("vessel") || tLabels.includes("hormuz");
+
+  if (fromIran && toIsrael) return "iran-israel";
+  if (fromIran && toGulf) return "iran-gulf";
+  if (toIran) return "us-israel-iran";
+  if (isShipping) return "shipping";
+  return "other";
+}
+
+// Pre-compute which strike IDs fall on a "major event" day (has notes in DAILY_STRIKE_DATA)
+const MAJOR_EVENT_STRIKE_IDS = new Set<string>();
+DAILY_STRIKE_DATA.filter((d) => d.notes).forEach((d) => {
+  const dt = new Date(d.date + "T00:00:00Z");
+  const month = dt.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" }).toUpperCase();
+  const dayN = dt.getUTCDate();
+  const year = dt.getUTCFullYear();
+  const re = new RegExp(`\\b${dayN}\\b`);
+  IRAN_STRIKES.forEach((strike) => {
+    const u = strike.date.toUpperCase();
+    if (u.includes(month) && u.includes(String(year)) && re.test(u)) {
+      MAJOR_EVENT_STRIKE_IDS.add(strike.id);
+    }
+  });
+});
+
+// ── Strike Volume Chart ───────────────────────────────────────────────────────
+
+const CHART_MARGIN_LEFT = 32;
+const CHART_MARGIN_TOP = 8;
+const CHART_H = 100;
+const X_LABEL_H = 26;
+// 3 bars per day: Iranian out (left), US/Israel on Iran (middle), shipping (right)
+const DAY_W = 17;
+const BAR_W = 4;
+const BAR_GAP = 1;
+const SVG_H = CHART_MARGIN_TOP + CHART_H + X_LABEL_H;
+const SVG_W = CHART_MARGIN_LEFT + DAILY_STRIKE_DATA.length * DAY_W;
+
+function formatChartDate(iso: string): string {
+  const d = new Date(iso + "T00:00:00Z");
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function StrikeVolumeChart({
+  onSelectDay,
+}: {
+  onSelectDay?: (day: DailyStrikeData) => void;
+}) {
+  const outerRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [tooltip, setTooltip] = useState<{
+    day: DailyStrikeData;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  // Auto-scale Y axis
+  const maxVal = Math.max(
+    ...DAILY_STRIKE_DATA.map((d) =>
+      Math.max(
+        d.iranOnIsrael + d.iranOnGulf,
+        d.usIsraelOnIran
+      )
+    )
+  );
+  const yMax = Math.ceil(maxVal / 25) * 25;
+  const toH = (v: number) => (v / yMax) * CHART_H;
+  const toY = (v: number) => CHART_MARGIN_TOP + CHART_H - toH(v);
+
+  const gridVals: number[] = [];
+  for (let v = 0; v <= yMax; v += 25) gridVals.push(v);
+
+  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!svgRef.current || !outerRef.current) return;
+    const svgRect = svgRef.current.getBoundingClientRect();
+    const outerRect = outerRef.current.getBoundingClientRect();
+    const svgX = e.clientX - svgRect.left;
+    const dayIdx = Math.floor((svgX - CHART_MARGIN_LEFT) / DAY_W);
+    if (dayIdx >= 0 && dayIdx < DAILY_STRIKE_DATA.length) {
+      setTooltip({
+        day: DAILY_STRIKE_DATA[dayIdx],
+        x: Math.max(4, Math.min(e.clientX - outerRect.left - 80, outerRect.width - 164)),
+        y: Math.max(4, e.clientY - outerRect.top - 110),
+      });
+    } else {
+      setTooltip(null);
+    }
+  };
+
+  return (
+    <div ref={outerRef} className="strike-chart-outer">
+      <div className="strike-chart-title">DAILY STRIKE VOLUME — 2026 IRAN WAR</div>
+      <div className="strike-chart-scroll">
+        <svg
+          ref={svgRef}
+          width={SVG_W}
+          height={SVG_H}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={() => setTooltip(null)}
+          style={{ cursor: "default", display: "block" }}
+        >
+          {/* Gridlines + Y labels */}
+          {gridVals.map((v) => (
+            <g key={v}>
+              <line
+                x1={CHART_MARGIN_LEFT}
+                y1={toY(v)}
+                x2={SVG_W}
+                y2={toY(v)}
+                stroke={v === 0 ? "#334155" : "#1a2332"}
+                strokeWidth={v === 0 ? 1 : 0.75}
+              />
+              {v > 0 && (
+                <text
+                  x={CHART_MARGIN_LEFT - 4}
+                  y={toY(v) + 3.5}
+                  fill="#475569"
+                  fontSize={7}
+                  textAnchor="end"
+                  fontFamily="JetBrains Mono, monospace"
+                >
+                  {v}
+                </text>
+              )}
+            </g>
+          ))}
+
+          {/* Bars */}
+          {DAILY_STRIKE_DATA.map((d, i) => {
+            const dayX = CHART_MARGIN_LEFT + i * DAY_W;
+            const leftX   = dayX + 1;
+            const midX    = dayX + 1 + BAR_W + BAR_GAP;
+            const rightX  = dayX + 1 + (BAR_W + BAR_GAP) * 2;
+            const isrH    = toH(d.iranOnIsrael);
+            const gulfH   = toH(d.iranOnGulf);
+            const iusH    = toH(d.usIsraelOnIran);
+            const shipH   = d.shippingAttacks > 0 ? Math.max(toH(d.shippingAttacks), 2) : 0;
+            const baseY   = CHART_MARGIN_TOP + CHART_H;
+            const isHovered = tooltip?.day.date === d.date;
+
+            return (
+              <g
+                key={d.date}
+                onClick={() => onSelectDay?.(d)}
+                style={{ cursor: onSelectDay ? "pointer" : "default" }}
+              >
+                {/* Hover / click highlight band */}
+                <rect
+                  x={dayX}
+                  y={CHART_MARGIN_TOP}
+                  width={DAY_W}
+                  height={CHART_H}
+                  fill={isHovered ? "rgba(255,255,255,0.06)" : "transparent"}
+                  stroke={isHovered ? "rgba(255,255,255,0.08)" : "none"}
+                  strokeWidth={0.5}
+                />
+                {/* Left bar: red (Iran→Israel) at bottom, orange (Iran→Gulf) above */}
+                {isrH > 0 && (
+                  <rect x={leftX} y={baseY - isrH} width={BAR_W} height={isrH}
+                    fill="#ef4444" opacity={isHovered ? 1 : 0.88} />
+                )}
+                {gulfH > 0 && (
+                  <rect x={leftX} y={baseY - isrH - gulfH} width={BAR_W} height={gulfH}
+                    fill="#f97316" opacity={isHovered ? 1 : 0.88} />
+                )}
+                {/* Middle bar: blue (US/Israel→Iran) */}
+                {iusH > 0 && (
+                  <rect x={midX} y={baseY - iusH} width={BAR_W} height={iusH}
+                    fill="#3b82f6" opacity={isHovered ? 1 : 0.88} />
+                )}
+                {/* Right bar: teal (shipping attacks) */}
+                {shipH > 0 && (
+                  <rect x={rightX} y={baseY - shipH} width={BAR_W} height={shipH}
+                    fill="#14b8a6" opacity={isHovered ? 1 : 0.9} />
+                )}
+              </g>
+            );
+          })}
+
+          {/* X-axis date labels every 3rd day */}
+          {DAILY_STRIKE_DATA.map((d, i) => {
+            if (i % 3 !== 0) return null;
+            const cx = CHART_MARGIN_LEFT + i * DAY_W + DAY_W / 2;
+            const labelY = CHART_MARGIN_TOP + CHART_H + 14;
+            return (
+              <text
+                key={d.date}
+                x={cx}
+                y={labelY}
+                fill="#475569"
+                fontSize={7}
+                textAnchor="middle"
+                fontFamily="JetBrains Mono, monospace"
+              >
+                {formatChartDate(d.date)}
+              </text>
+            );
+          })}
+
+          {/* Note spike markers */}
+          {DAILY_STRIKE_DATA.map((d, i) => {
+            if (!d.notes) return null;
+            const cx = CHART_MARGIN_LEFT + i * DAY_W + DAY_W / 2;
+            return (
+              <circle
+                key={d.date}
+                cx={cx}
+                cy={CHART_MARGIN_TOP + 4}
+                r={2}
+                fill="#facc15"
+                opacity={0.7}
+              />
+            );
+          })}
+        </svg>
+        {/* Tooltip */}
+        {tooltip && (
+          <div
+            className="strike-chart-tooltip"
+            style={{ left: tooltip.x, top: tooltip.y }}
+          >
+            <div className="strike-chart-tooltip-date">
+              {formatChartDate(tooltip.day.date)}
+              <span style={{ color: "#64748b", marginLeft: 6 }}>Day {tooltip.day.day}</span>
+            </div>
+            <div className="strike-chart-tooltip-row">
+              <span className="strike-chart-swatch" style={{ background: "#ef4444" }} />
+              Iran → Israel: <strong>{tooltip.day.iranOnIsrael}</strong>
+            </div>
+            <div className="strike-chart-tooltip-row">
+              <span className="strike-chart-swatch" style={{ background: "#f97316" }} />
+              Iran → Gulf States: <strong>{tooltip.day.iranOnGulf}</strong>
+            </div>
+            <div className="strike-chart-tooltip-row">
+              <span className="strike-chart-swatch" style={{ background: "#3b82f6" }} />
+              Israel/US → Iran: <strong>{tooltip.day.usIsraelOnIran}</strong>
+            </div>
+            <div className="strike-chart-tooltip-row">
+              <span className="strike-chart-swatch" style={{ background: "#14b8a6" }} />
+              Shipping attacks: <strong>{tooltip.day.shippingAttacks}</strong>
+            </div>
+            {tooltip.day.notes && (
+              <div className="strike-chart-tooltip-notes">{tooltip.day.notes}</div>
+            )}
+          </div>
+        )}
+      </div>
+      {/* Legend */}
+      <div className="strike-chart-legend">
+        <span>
+          <span className="strike-chart-swatch" style={{ background: "#ef4444" }} />
+          Iran → Israel
+        </span>
+        <span>
+          <span className="strike-chart-swatch" style={{ background: "#f97316" }} />
+          Iran → Gulf
+        </span>
+        <span>
+          <span className="strike-chart-swatch" style={{ background: "#3b82f6" }} />
+          Israel/US → Iran
+        </span>
+        <span>
+          <span className="strike-chart-swatch" style={{ background: "#14b8a6" }} />
+          Shipping
+        </span>
+        <span className="strike-chart-legend-note">
+          <span className="strike-chart-swatch" style={{ background: "#facc15" }} />
+          Major event
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export function MiddleEastPage() {
@@ -112,6 +449,9 @@ export function MiddleEastPage() {
   const [selectedStrike, setSelectedStrike] = useState<IranStrike | null>(null);
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
+  const [strikeFilter, setStrikeFilter] = useState<StrikeFilterId>("all");
+  const dateGroupRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Create scene on mount
   useEffect(() => {
@@ -221,16 +561,48 @@ export function MiddleEastPage() {
     sceneApiRef.current?.clearAllRanges();
     sceneApiRef.current?.setSelectedCountry(null);
     sceneApiRef.current?.showStrikeArcs(strike);
-    // Center globe on geographic midpoint of all strike points
+    // Center globe on geographic midpoint — only when coordinates are present.
+    // Strikes with no coordinates (e.g. ongoing-attrition summary entries) are
+    // skipped; calling centerGlobeOn(NaN, NaN) would corrupt globe.rotation and
+    // make the entire globe and all its children invisible.
     const all = [...strike.launchOrigins, ...strike.targets];
-    const lat = all.reduce((s, p) => s + p.lat, 0) / all.length;
-    const lng = all.reduce((s, p) => s + p.lng, 0) / all.length;
-    sceneApiRef.current?.centerGlobeOn(lat, lng);
+    if (all.length > 0) {
+      const lat = all.reduce((s, p) => s + p.lat, 0) / all.length;
+      const lng = all.reduce((s, p) => s + p.lng, 0) / all.length;
+      sceneApiRef.current?.centerGlobeOn(lat, lng);
+    }
   }, []);
 
   const handleClearStrikes = useCallback(() => {
     setSelectedStrike(null);
     sceneApiRef.current?.clearStrikeArcs();
+  }, []);
+
+  const handleChartSelectDay = useCallback((day: DailyStrikeData) => {
+    const dt = new Date(day.date + "T00:00:00Z");
+    const month = dt.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" }).toUpperCase();
+    const dayN = dt.getUTCDate();
+    const year = dt.getUTCFullYear();
+    const re = new RegExp(`\\b${dayN}\\b`);
+
+    const matchingDates = new Set<string>();
+    IRAN_STRIKES.forEach((strike) => {
+      const u = strike.date.toUpperCase();
+      if (u.includes(month) && u.includes(String(year)) && re.test(u)) {
+        matchingDates.add(strike.date);
+      }
+    });
+
+    if (matchingDates.size > 0) {
+      setExpandedDates((prev) => new Set([...prev, ...matchingDates]));
+      const firstDate = [...matchingDates][0];
+      setTimeout(() => {
+        dateGroupRefs.current[firstDate]?.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+        });
+      }, 80);
+    }
   }, []);
 
   const handleCloseCountry = useCallback(() => {
@@ -325,17 +697,114 @@ export function MiddleEastPage() {
             </div>
             {strikeHistoryOpen && (
               <div className="me-strike-timeline">
-                {IRAN_STRIKES.map((strike) => (
-                  <div
-                    key={strike.id}
-                    className={`me-strike-item ${selectedStrike?.id === strike.id ? "active" : ""}`}
-                    onClick={() => handleSelectStrike(strike)}
-                  >
-                    <div className="me-strike-date">{strike.date}</div>
-                    <div className="me-strike-codename">{strike.codename}</div>
-                    <div className="me-strike-oneliner">{strike.title}</div>
-                  </div>
-                ))}
+                {/* Daily volume chart — clicking a bar expands that date */}
+                <StrikeVolumeChart onSelectDay={handleChartSelectDay} />
+
+                {/* Category filter chips */}
+                <div className="me-strike-filter-chips">
+                  {STRIKE_FILTER_CHIPS.map((chip) => (
+                    <button
+                      key={chip.id}
+                      type="button"
+                      className={`me-strike-chip ${strikeFilter === chip.id ? "active" : ""}`}
+                      style={
+                        strikeFilter === chip.id
+                          ? {
+                              background: chip.color + "22",
+                              borderColor: chip.color + "88",
+                              color: chip.color,
+                            }
+                          : undefined
+                      }
+                      onClick={() => setStrikeFilter(chip.id)}
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Strike list: campaign sections → collapsible date headers → compact entries */}
+                {CAMPAIGN_ORDER.map((campaign) => {
+                  const campaignStrikes = STRIKES_BY_CAMPAIGN[campaign].filter(
+                    (strike) => {
+                      if (strikeFilter === "all") return true;
+                      if (strikeFilter === "major")
+                        return MAJOR_EVENT_STRIKE_IDS.has(strike.id);
+                      return getStrikeCategory(strike) === strikeFilter;
+                    }
+                  );
+                  if (campaignStrikes.length === 0) return null;
+
+                  // Group by date (preserves original order)
+                  const dateMap: Record<string, IranStrike[]> = {};
+                  const dateOrder: string[] = [];
+                  campaignStrikes.forEach((strike) => {
+                    if (!dateMap[strike.date]) {
+                      dateMap[strike.date] = [];
+                      dateOrder.push(strike.date);
+                    }
+                    dateMap[strike.date].push(strike);
+                  });
+
+                  return (
+                    <div key={campaign || "historical"}>
+                      {campaign && (
+                        <div className="me-campaign-header">{campaign}</div>
+                      )}
+                      {dateOrder.map((date) => {
+                        const group = dateMap[date];
+                        const isExpanded = expandedDates.has(date);
+                        return (
+                          <div
+                            key={date}
+                            ref={(el) => {
+                              dateGroupRefs.current[date] = el;
+                            }}
+                          >
+                            <button
+                              type="button"
+                              className="me-date-header"
+                              onClick={() =>
+                                setExpandedDates((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(date)) next.delete(date);
+                                  else next.add(date);
+                                  return next;
+                                })
+                              }
+                            >
+                              <span
+                                className={`me-date-chevron ${isExpanded ? "open" : ""}`}
+                              />
+                              <span className="me-date-label">{date}</span>
+                              <span className="me-date-count">
+                                {group.length}
+                              </span>
+                            </button>
+                            {isExpanded && (
+                              <div className="me-date-group">
+                                {group.map((strike) => (
+                                  <div
+                                    key={strike.id}
+                                    className={`me-strike-compact ${selectedStrike?.id === strike.id ? "active" : ""}`}
+                                    onClick={() => handleSelectStrike(strike)}
+                                  >
+                                    <span className="me-strike-compact-code">
+                                      {strike.codename}
+                                    </span>
+                                    <span className="me-strike-compact-title">
+                                      {strike.title}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
