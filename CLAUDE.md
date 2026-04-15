@@ -1,52 +1,40 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Commands
 
-```bash
-npm install --legacy-peer-deps   # Install dependencies (legacy flag required for peer dep conflicts)
-npm run dev                      # Start dev server at http://localhost:5173
-npm run build                    # Type-check + Vite production build
-npm run preview                  # Preview production build
-npm run lint                     # ESLint with --max-warnings 0 (strict — zero warnings allowed)
-```
+npm install --legacy-peer-deps
+npm run dev
+npm run build
 
-## Architecture
+## Routing
 
-This is a single-page React/TypeScript app that renders an interactive 3D globe visualizing the global nuclear arsenal. There is no backend — all data is hardcoded or loaded from static assets.
+/ — Nuclear Arsenal Tracker
+/middle-east — Middle East Ballistic Missile Tracker
 
-### Rendering model
+## Key Files
 
-The app mixes two rendering systems:
-- **React DOM** for all UI (panels, sliders, modals)
-- **Three.js (via @react-three/fiber)** for the 3D globe scene
+### Nuclear Tracker
+- App.tsx — root state, wires scene + UI
+- threeScene.ts — Three.js globe, markers, range domes, arcs, submarine animations
+- data.ts — 70+ facilities, historical warhead counts, cities, submarine patrols, utility functions
 
-`threeScene.ts` is the core of the 3D layer — it creates and manages the Three.js scene imperatively, not through React Three Fiber components. It exposes a `SceneApi` object for calling methods from React (e.g., `setFacilityFilter`, `showRangeDome`, `setThreatMode`). `App.tsx` holds all shared state and passes it down to both the UI components and the scene via callbacks.
+### Middle East Tracker
+- MiddleEastPage.tsx — full page: globe, side panel, strike history (inline), StrikeVolumeChart, filters, date grouping
+- iranStrikes.ts — 80+ strike entries + DAILY_STRIKE_DATA for bar chart
+- middleEastMissiles.ts — missile sites, US/allied bases, weapons systems, country profiles
 
-### Data layer (`src/data.ts`)
+### Shared
+- public/earth-night.jpg — globe texture
+- public/ne_110m_admin_0_countries.geojson — country borders
 
-All domain data lives here:
-- 70+ nuclear facility definitions (lat/lng, type, country, warhead count, missile range)
-- `HISTORICAL_WARHEADS` — per-country warhead counts from 1945–2025
-- `MAJOR_CITIES` — target cities for threat assessment
-- `SUBMARINE_PATROLS` — patrol route waypoints
-- Utility functions: `latLngToVector3()`, `haversineDistanceKm()`, `getFlightTimeMinutes()`, `getWarheadsForYear()`
+## Rendering
 
-### Static assets (`public/`)
+Three.js is used imperatively — NOT react-three-fiber (causes blank screen from SES/lockdown conflict). Scene files expose API objects that React calls.
 
-- `earth-night.jpg` — Earth night-lights texture used as the globe surface
-- `ne_110m_admin_0_countries.geojson` — Country border polygons for the globe overlay
+## Technical Notes
 
-### Component responsibilities
-
-| File | Role |
-|---|---|
-| `App.tsx` | Root state, filter/timeline/threat state, wires scene + UI |
-| `threeScene.ts` | Three.js scene creation, globe, facility markers, range domes, threat arcs, submarine animations |
-| `SidePanel.tsx` | Filter controls, country selection, warhead stats, threat mode toggle |
-| `DetailPanel.tsx` | Selected facility info, range/target buttons |
-| `ThreatPanel.tsx` | Target city threat assessment, flight times |
-| `TimelineSlider.tsx` | 1945–2025 animated timeline, historical event markers |
-| `LandingScreen.tsx` | Intro splash with terminal animation |
-| `DataSourcesModal.tsx` | Data provenance info and disclaimers |
+- earcut library for polygon triangulation (fixes Iran/Saudi Arabia gaps)
+- Raycasting + point-in-polygon for Iran/Saudi click detection (mesh-based fails)
+- Strike arcs must overlay the globe, not replace it — layering order matters
+- Globe auto-rotation disabled in threat assessment and strike history modes
+- npm install --legacy-peer-deps required due to React 18 peer dep conflict

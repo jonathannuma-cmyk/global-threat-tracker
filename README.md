@@ -1,47 +1,27 @@
-# ☢ Global Nuclear Arsenal Tracker
+# Global Threat Tracker
 
-An interactive 3D globe visualizing the world's nuclear forces using publicly available open-source intelligence data.
+An interactive 3D globe-based OSINT tool that visualizes global military threats using publicly available intelligence data.
 
-## Features
+## What It Does
 
-- **3D Interactive Globe** — Night lights Earth texture with country borders, drag to rotate, scroll to zoom
-- **70+ Nuclear Facilities** — ICBM silos, submarine bases, air bases, storage sites, and test ranges across all 9 nuclear states
-- **Targeting Arcs** — Visualize likely missile trajectories based on public strategic doctrine
-- **Threat Assessment Mode** — Select any major city and see which nuclear facilities can reach it with estimated flight times
-- **Submarine Patrols** — Animated submarine markers following estimated patrol routes
-- **Range Visualization** — Toggle range domes showing missile reach
-- **Historical Timeline** — Slider from 1945 to 2025 showing arsenal changes over 80 years
-- **Country Filtering** — Filter by nuclear state or facility type
+**Nuclear Arsenal Tracker** — Maps 70+ nuclear facilities across all 9 nuclear states with range domes, targeting arcs, submarine patrol routes, threat assessment mode, and an animated 1945–2025 historical timeline.
 
-## Data Sources
+**Middle East Ballistic Missile Tracker** — Documents every significant strike of the 2026 Iran War (Operation Epic Fury, Feb 28 – Apr 8). 80+ verified events mapped on a 3D globe with a filterable, date-grouped strike history timeline, interactive bar chart, and detailed strike cards showing launch origins, targets, munitions, and outcomes.
 
-- [Federation of American Scientists (FAS)](https://fas.org/issues/nuclear-weapons/status-world-nuclear-forces)
-- [Stockholm International Peace Research Institute (SIPRI)](https://sipri.org/yearbook)
-- [Nuclear Threat Initiative (NTI)](https://nti.org)
-- [CSIS Missile Threat Project](https://missilethreat.csis.org)
+## Data Sourcing
 
-## Disclaimer
+Nuclear data from FAS, SIPRI, NTI, and CSIS Missile Threat Project.
 
-This visualization uses publicly available estimates. Targeting trajectories and submarine patrol routes are educated estimates based on public strategic doctrine. For educational purposes only.
+Strike data sourced exclusively from credible, independently verified reporting — no Wikipedia. Every entry is cross-referenced across 2+ outlets before inclusion. Sources include Al Jazeera, ACLED, Associated Press, CBS News, CNN, BBC, Human Rights Watch, Amnesty International, NPR, PBS, Alma Research Center, Understanding War, Critical Threats, HRANA, SIPRI, and JINSA.
 
 ## Tech Stack
 
-- React + TypeScript
-- Three.js
-- Vite
-- GeoJSON (Natural Earth)
+React, TypeScript, Vite, Three.js, Earcut, Natural Earth GeoJSON.
 
-## Getting Started
+## Disclaimer
 
-npm install --legacy-peer-deps
-npm run dev
-
-Open http://localhost:5173
+This visualization uses publicly available estimates and open-source intelligence for educational and research purposes only.
 
 ## Author
 
 Jonathan Numa
-
-## License
-
-MIT
